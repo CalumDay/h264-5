@@ -1,32 +1,157 @@
-# H.264 / Dynamic HDR to H.265 Archival Converter
+# H.264 to H.265 Archival Converter
+Handles HDR content, and maintains metadata, chapters, and audio/subtitle streams
 
-A Linux Bash script that recursively converts H.264 video streams to H.265/HEVC using CPU-based `libx265`. It can also opt in to metadata-aware re-encoding of supported HDR10+ and Dolby Vision HEVC sources while preserving directory layout, audio, subtitles, chapters, metadata, and other streams wherever the destination container supports them.
+This is a set of Linux-only scripts that utilises FFMPEG to transcode H.264 media to H.265 with an aim of minimising file size without meaningful degredation in quality. It utilises CPU-based 'libx265'.
 
-The script is intended for **high-quality archival derivatives**. For strict archival preservation, retain the original H.264 files separately.
+The script mirrors the source tree into a configurable destination, preserves non-video streams and metadata unchanged, and has optional HDR handling. Outputs are verified, and a configurable minimum size saving retains original files where the new copy is not meaningfully smaller.
 
-## Highlights
+It is important to note that when operating as intended, this is not lossless. Some loss in image quality is to be expected, however the default setting target a minimum VMAF score of 95.
 
-- Recursively scans a complete directory tree.
-- Creates a mirrored `h265/` tree beneath the source directory.
-- Uses CPU-based `libx265`; no GPU/VA-API encoding is used.
-- Defaults to `CRF=14` and `PRESET=slow`.
-- Stream-copies audio, subtitles, attachments, data streams, and non-H.264 video streams.
-- Preserves global metadata and chapters.
-- Preserves resolution, SAR, DAR, bit depth, HDR10/HLG colour signalling, and static HDR metadata where FFmpeg exposes it.
-- Defaults to copying Dolby Vision/HDR10+ unchanged; `DYNAMIC_HDR=transcode` enables metadata-aware re-encoding for supported dynamic-HDR sources.
-- Avoids automatically converting 4:2:2, 4:4:4, RGB, and greater-than-10-bit H.264 sources.
-- Uses atomic temporary output files so interrupted encodes do not appear as completed files.
-- Cleans the current temporary output on interruption (`SIGINT`, `SIGTERM`, `SIGHUP`).
-- Verifies the complete stream structure after conversion: stream counts/types/codecs, audio properties, selected stream metadata, dispositions, chapters, attachments, and selected container metadata.
-- Explicitly enables A/53 caption and unregistered SEI preservation when supported by the installed FFmpeg/libx265 build.
-- Supports optional x265 tuning such as `TUNE=grain`.
-- Supports `CONTAINER=source` or `CONTAINER=mkv`.
-- Optionally writes SHA-256 manifests for the source and output trees.
-- Uses stronger Linux filesystem metadata preservation for copied and transcoded files.
-- Displays per-file encoding progress and overall dataset progress.
-- Stores every warning/error in one persistent log: `h265/conversion_warnings.log`.
+## Installation
+Download h264_to_h265_transcoder.sh and the lib folder. place them together in a convenient directory.
 
-## Requirements
+Make the script executable
+```bash
+chmod +x h264_to_h265_transcoder.sh
+```
+## Basic usage
+Run the script:
+
+```bash
+./h264_to_h265_archive.sh /path/to/media
+```
+
+By default the destination is:
+
+```text
+/path/to/media/h265
+```
+
+A typical high-quality run is therefore simply:
+
+```bash
+./h264_to_h265_archive.sh /path/to/media
+```
+
+Variables can be specified by calling them before the above command:
+
+```bash
+CRF=18 PRESET=slow TUNE=grain ./h264_to_h265_archive.sh /path/to/media
+```
+
+## Separate destination filesystem
+
+The destination can be overridden with `DEST_ROOT`:
+
+```bash
+DEST_ROOT=/mnt/hevc-archive ./h264_to_h265_archive.sh /mnt/source-archive
+```
+
+The destination can be inside the source tree or on another filesystem. It must not be the source directory itself or an ancestor of the source directory.
+
+The script mirrors source subdirectories, including empty directories, into the destination.
+
+## Defaults
+
+| Variable  | Description   |
+|---|---|
+| CRF=18    | CRF can be set to an integer. FFMPEG defaults to 28 |
+| PRESET=slow    | Can be: medium, slow, slower, veryslow   |
+| TUNE=  | Enables transcode tuning. Can be: psnr, ssim, grain, zerolatency, fastdecode |
+| LOSSLESS=0 | Enables lossless image handling. Should not be set to 1 unless needed, as this will increase file size   |
+| OVERWRITE=0    | Sets if output files should overwrite previous output files  |
+| CONTAINER=source   | Sets output container. Change to mkv if needed   |
+| CHECKSUMS=0    | Sets checksum generation |
+| VERIFY_STRUCTURE=1 | Sets if output structure should be verified. |
+| VERIFY_DECODE=0    | Sets if full decode verification should be performed |
+| FATAL_VERIFY=1 | Sets if fatal errors should result in transcode rejection    |
+| DYNAMIC_HDR=transcode  | Sets if HDR content should be transcoded or copied.  |
+| HDR_SCAN_PACKETS=300   | Sets number of packages for fast scan of static HDR  |
+| HDR_HEARTBEAT_SECONDS=5    | Sets how often to update the progress hearbeat when scanning HDR content in seconds  |
+| PROGRESS_WIDTH=36  | Sets the width of the progress bar   |
+| KEEP_ONLY_IF_SMALLER=1 | Enables keeping output files only if meaningfully smaller than original  |
+| MIN_SIZE_SAVING_PERCENT=5  | Sets the minimum file size saving in %   |
+| MIN_SIZE_SAVING_MIB=100    | Sets the minimum file size saving in MiB |
+| ABS_SAVING_MIN_SOURCE_MIB=1024 | Sets the minimum file size for the percentage based file size check to apply |
+| FREE_SPACE_CHECK=1 | Enables pre-processing free space check  |
+| MIN_FREE_SPACE_GIB=5   | Minimum available space required if FREE_SPACE_CHECK=1   |
+| REPROCESS_ON_TOOL_CHANGE=0 | Reprocess files when the script is updated or variables are changed  |
+
+### Lossless mode
+
+```bash
+LOSSLESS=1 PRESET=slow ./h264_to_h265_archive.sh /path/to/media
+```
+
+When `LOSSLESS=1`, CRF is not used and x265 lossless mode is enabled. The script additionally hashes decoded raw video pixels from source and output. A mismatch is a critical verification failure when `FATAL_VERIFY=1`. This will massively increase filesize, and makes the process pointless, as it cannot exceed the quality of the original stream. If maximum quality and not optimising quality to filesize is important to you, then you should keep the originals.
+
+
+## What happens when settings change?
+
+Changing CRF, preset, tune, container mode, HDR policy, verification policy, or size-gate settings invalidates the completed-state decision and causes the file to be reconsidered.
+
+However, the expensive exhaustive HDR result is cached separately in the same state file. If the source fingerprint is unchanged, the script can print:
+
+```text
+HDR scan: Movies/Example.mkv (cached)
+```
+
+and proceed without scanning the full media file again.
+
+### Force reprocessing
+
+```bash
+OVERWRITE=1 ./h264_to_h265_archive.sh /path/to/media
+```
+
+This ignores completed-state skip decisions. A still-valid HDR scan cache may nevertheless be reused because it describes the source rather than the previous encode.
+
+### Toolchain changes
+
+Tool versions are recorded for reproducibility. By default, a tool upgrade alone does not invalidate completed output:
+
+```text
+REPROCESS_ON_TOOL_CHANGE=0
+```
+
+To force reprocessing when the FFmpeg/x265/HDR-tool fingerprint changes:
+
+```bash
+REPROCESS_ON_TOOL_CHANGE=1 ./h264_to_h265_archive.sh /path/to/media
+
+## Transcode workflow
+The default workflow is:
+
+```text
+source file discovered
+        ↓
+cheap filesystem/state check
+        ↓
+already current and verified? ── yes ──→ SKIP
+        ↓ no
+reuse cached full HDR scan if source is unchanged
+        ↓
+otherwise run exhaustive dynamic-HDR scan
+        ↓
+classify source / archival safety checks
+        ↓
+copy original unchanged OR encode to atomic .partial file
+        ↓
+whole-file storage-saving gate
+        ↓
+critical verification
+        ↓
+verification failure? → yes → discard derivative → copy original
+        ↓ no
+preserve filesystem metadata
+        ↓
+atomic rename into final destination
+        ↓
+write completed processing state
+```
+
+
+## Package Requirements
 
 Required commands:
 
@@ -49,25 +174,11 @@ mktemp
 tail
 sed
 wc
+stat
+flock
+df
+sleep
 ```
-
-When `CHECKSUMS=1`, these are also required:
-
-```text
-sha256sum
-sort
-xargs
-```
-
-Dynamic-HDR tools are required only when the matching content is encountered with `DYNAMIC_HDR=transcode`:
-
-```text
-hdr10plus_tool   # HDR10+ extraction/verification
-dovi_tool        # Required for Profile 7 MEL; optional enhanced Profile 5/8 RPU verification
-cmp              # Profile 7 RPU binary verification
-```
-
-Dolby Vision Profiles 5 and 8 use FFmpeg/libx265's native `dolbyvision` encoder support. If `dovi_tool` is also installed, the script independently extracts the source/output RPUs, compares frame counts, and compares full exported RPU metadata. If a required tool or encoder capability is unavailable, the source is copied unchanged and a warning is logged.
 
 Your FFmpeg build must include `libx265`:
 
@@ -75,316 +186,115 @@ Your FFmpeg build must include `libx265`:
 ffmpeg -hide_banner -encoders | grep libx265
 ```
 
-The script detects whether the installed `libx265` wrapper exposes `a53cc` and `udu_sei`. If either option is unavailable, the script continues but records a warning.
-
-## Installation
-
-Make the script executable:
-
-```bash
-chmod +x h264_to_h265_archive.sh
-```
-
-## Basic Usage
-
-```bash
-./h264_to_h265_archive.sh /path/to/media
-```
-
-Example:
-
-```bash
-./h264_to_h265_archive.sh /mnt/archive/videos
-```
-
-The output tree is created at:
+When `CHECKSUMS=1`, these are additionally required:
 
 ```text
-/mnt/archive/videos/h265/
+sha256sum
+sort
+xargs
 ```
 
-The `h265/` directory is explicitly excluded from future scans.
+Dynamic-HDR tools are required only when `DYNAMIC_HDR=transcode` encounters matching content:
 
-## Dynamic HDR Mode
+```text
+hdr10plus_tool   HDR10+ extraction and verification
+dovi_tool        Dolby Vision RPU extraction/conversion/verification
+cmp              Profile 7 MEL binary RPU comparison
+```
 
-The default is the safest behavior:
+If a dynamic-HDR workflow requires a tool or encoder capability that is unavailable, the script preserves the source by copying it unchanged.
+
+## Exhaustive dynamic-HDR scanning
+
+Before re-encoding a candidate that could contain dynamic HDR, the script exhaustively inspects video stream, frame, and packet side data over the complete file.
+
+The scan looks for indicators including:
+
+```text
+Dolby Vision / DOVI
+HDR10+
+SMPTE ST 2094-40
+HDR Dynamic Metadata
+```
+
+The result is cached by source fingerprint.
+
+Long scans display a heartbeat such as:
+
+```text
+HDR scan: Movies/Feature.mkv | elapsed 00:02:15
+```
+
+Set the heartbeat interval with:
+
+```bash
+HDR_HEARTBEAT_SECONDS=10 ./h264_to_h265_archive.sh /path/to/media
+```
+
+## Dynamic HDR policy
+
+The safe default is:
 
 ```text
 DYNAMIC_HDR=copy
 ```
 
-With this setting, any dynamic HDR discovered on a file that would otherwise be transcoded causes that file to be copied unchanged. Ordinary HEVC files are copied unchanged as well.
+When dynamic HDR is detected, the original is copied unchanged.
 
-To opt in to metadata-aware dynamic-HDR re-encoding:
+Enable metadata-aware re-encoding explicitly with:
 
 ```bash
 DYNAMIC_HDR=transcode CONTAINER=mkv ./h264_to_h265_archive.sh /path/to/media
 ```
 
-`DYNAMIC_HDR=transcode` also inspects HEVC sources so supported HDR10+/Dolby Vision files can be selected for re-encoding. Unsupported or ambiguous cases still fall back to copying the source unchanged.
+### HDR10+
 
-## Directory and Filename Behaviour
+For supported HDR10+ HEVC sources, the script uses `hdr10plus_tool` to extract dynamic metadata, supplies it to x265 during encoding, then extracts metadata from the result and compares it with the source JSON.
 
-With the default:
+A mismatch is a critical verification issue by default.
 
-```text
-CONTAINER=source
-```
+### Dolby Vision Profile 5 / 8
 
-transcoded files retain the same relative path and filename as the source.
+When the installed FFmpeg/libx265 wrapper exposes Dolby Vision coding, Profile 5 and Profile 8 sources can use native RPU handling.
 
-Example:
+When `dovi_tool` is installed, the script independently extracts source/output RPU data and compares frame counts and exported semantic metadata.
 
-```text
-Movies/Example.mp4
-```
+### Dolby Vision Profile 7 MEL
 
-becomes:
+The script can conservatively convert supported Profile 7 MEL material to single-layer Profile 8.1 when:
 
-```text
-h265/Movies/Example.mp4
-```
+- `dovi_tool` is installed;
+- `CONTAINER=mkv` is selected;
+- the source is confidently constant frame rate;
+- video start time is effectively zero;
+- RPU conversion/injection succeeds and verifies.
 
-If you use:
+### Dolby Vision Profile 7 FEL
 
-```bash
-CONTAINER=mkv ./h264_to_h265_archive.sh /path/to/media
-```
+Profile 7 FEL is copied unchanged. The generic workflow deliberately does not discard FEL residual picture information for the sake of an automatic transcode.
 
-transcoded non-MKV files receive an additional `.mkv` suffix. This deliberately avoids filename collisions while retaining the original filename:
+### Unknown dynamic HDR
 
-```text
-Movies/Example.mp4
-```
+Unknown or ambiguous dynamic-HDR content is copied unchanged rather than guessed at.
 
-becomes:
+## Chroma / bit-depth safeguards
+
+H.264 video using formats that would be reduced by the normal Main/Main10 workflow is copied unchanged, including conservative handling of:
 
 ```text
-h265/Movies/Example.mp4.mkv
+4:2:2
+4:4:4
+GBR/RGB-style formats
+12-bit
+14-bit
+16-bit
 ```
 
-An existing `.mkv` source remains `.mkv`.
+HDR signalling on an unsupported source bit depth also causes the source to be copied unchanged.
 
-Files that are copied unchanged keep their original filename and extension regardless of `CONTAINER` mode.
+## Stream and metadata preservation
 
-### Which container should I use?
-
-Use `CONTAINER=source` when preserving the exact filename/extension is important and you know the source container supports HEVC plus all copied streams.
-
-Use `CONTAINER=mkv` for heterogeneous archival libraries where broad support for subtitles, attachments, chapters, and arbitrary stream combinations is more important than retaining the original container extension.
-
-## Default Encoding Settings
-
-The defaults are:
-
-```text
-Encoder: libx265
-CRF:     14
-Preset:  slow
-Tune:    none
-```
-
-Run explicitly with the defaults:
-
-```bash
-CRF=14 PRESET=slow ./h264_to_h265_archive.sh /path/to/media
-```
-
-## CRF Quality
-
-Set CRF using an environment variable:
-
-```bash
-CRF=16 ./h264_to_h265_archive.sh /path/to/media
-```
-
-Typical guidance:
-
-| CRF | Intended use |
-|---:|---|
-| 12 | Extremely high quality, very large files |
-| 14 | Very conservative archival derivative; default |
-| 16 | Very high quality with better space savings |
-| 18 | High quality and smaller output |
-| 20+ | Increasing emphasis on storage savings |
-
-Lower CRF means higher quality and larger files.
-
-CRF encoding is still mathematically lossy. Keep the original H.264 file if strict preservation matters.
-
-## x265 Preset
-
-The default preset is:
-
-```text
-slow
-```
-
-Examples:
-
-```bash
-PRESET=medium ./h264_to_h265_archive.sh /path/to/media
-```
-
-```bash
-PRESET=veryslow ./h264_to_h265_archive.sh /path/to/media
-```
-
-Slower presets spend more CPU time for better compression efficiency at the selected quality target.
-
-## Tune Options
-
-`TUNE` is optional and unset by default.
-
-For film grain or naturally noisy material:
-
-```bash
-TUNE=grain ./h264_to_h265_archive.sh /path/to/media
-```
-
-A useful archival-derivative combination for grain-heavy material is:
-
-```bash
-CRF=14 PRESET=slow TUNE=grain ./h264_to_h265_archive.sh /path/to/media
-```
-
-Do not apply `grain` automatically to clean digital material; it intentionally changes x265's decisions to favour consistent grain/high-frequency detail.
-
-## Lossless Mode
-
-Use x265 mathematically lossless mode with:
-
-```bash
-LOSSLESS=1 ./h264_to_h265_archive.sh /path/to/media
-```
-
-In this mode:
-
-- CRF is not used.
-- x265 receives `lossless=1`.
-- The script decodes both the original H.264 and output HEVC video.
-- It calculates SHA-256 hashes of the decoded raw video.
-- A mismatch is recorded in the warning log.
-
-Lossless H.265 preserves the **decoded picture**, not the original H.264 compressed bitstream. The resulting file can be larger than the source.
-
-## Atomic Output and Interruption Safety
-
-Transcoded and copied files are first written to temporary files in the destination directory. A final file is created only after the temporary file has been successfully completed.
-
-The final step is a same-directory `mv`, making the commit atomic on a normal Linux filesystem.
-
-If the script is interrupted with `Ctrl+C`, `SIGTERM`, or `SIGHUP`, the currently active temporary output is removed.
-
-A hard power loss or `SIGKILL` can still leave a `.h265-partial.*` temporary file, but such a file does **not** have the final destination filename and therefore will not be mistaken for a completed conversion on the next run.
-
-## Full Media-Structure Verification
-
-After a successful encode, the script verifies the temporary output before moving it into its final name.
-
-The verification compares:
-
-- total stream count;
-- counts by stream type (`video`, `audio`, `subtitle`, `attachment`, etc.);
-- expected codec changes (`h264` -> `hevc` only);
-- codecs of copied streams;
-- audio sample rate, channel count, and channel layout;
-- selected stream metadata such as language, title, filename, MIME type, handler name, and comments;
-- stream disposition flags (`default`, `forced`, accessibility flags, and others exposed by ffprobe);
-- chapter count;
-- chapter start/end times with a small muxing tolerance;
-- chapter metadata;
-- selected container metadata such as title, artist, album, date, creation time, comments, description, copyright, and publisher.
-
-Verification warnings do **not** delete an otherwise successful encode. They are written to:
-
-```text
-h265/conversion_warnings.log
-```
-
-The existing video-specific verification also checks:
-
-- codec;
-- resolution;
-- sample aspect ratio (SAR);
-- display aspect ratio (DAR);
-- HDR bit depth;
-- HDR colour primaries;
-- HDR transfer characteristics;
-- HDR matrix coefficients;
-- mastering-display metadata;
-- MaxCLL/MaxFALL metadata.
-
-Set:
-
-```bash
-VERIFY_STRUCTURE=0 ./h264_to_h265_archive.sh /path/to/media
-```
-
-only if you explicitly want to skip the broader Python-based structural verification.
-
-## HDR Handling
-
-### HDR10
-
-For HDR10, the script attempts to preserve:
-
-- 10-bit depth;
-- HEVC Main10 profile;
-- BT.2020 primaries where present;
-- SMPTE ST 2084/PQ transfer characteristics;
-- colour matrix coefficients;
-- full/limited range signalling;
-- mastering-display metadata;
-- MaxCLL/MaxFALL metadata.
-
-For PQ HDR10, the script also supplies x265's HDR10 signalling and enables `hdr10-opt` in normal CRF mode.
-
-### HLG
-
-HLG is detected through `arib-std-b67`. Its colour signalling is preserved and verified.
-
-### Dolby Vision and HDR10+
-
-Before transcoding a candidate file, the script performs an **exhaustive full-file dynamic-HDR scan**. It inspects stream, frame, and packet side-data across the complete file rather than limiting dynamic-HDR detection to the first `HDR_SCAN_PACKETS` frames/packets. The exhaustive scan is restricted to video streams so audio and subtitle packets are not needlessly enumerated. `HDR_SCAN_PACKETS` remains only for the faster static HDR10/HLG checks.
-
-The default `DYNAMIC_HDR=copy` remains conservative: detected dynamic HDR is copied unchanged.
-
-With `DYNAMIC_HDR=transcode`, supported HEVC dynamic-HDR sources use the following workflows:
-
-| Source | Behavior |
-|---|---|
-| HDR10+ | Extract frame-level metadata with `hdr10plus_tool`, re-encode with x265 using `dhdr10-info`, re-extract output metadata, and compare it with the source metadata. |
-| Dolby Vision Profile 5 | Re-encode with FFmpeg/libx265 native Dolby Vision RPU coding and verify Dolby Vision/RPU signalling. If `dovi_tool` is installed, source/output RPU metadata is also independently compared. |
-| Dolby Vision Profile 8.x | Same native FFmpeg/libx265 RPU-aware workflow; compatible HDR10/HLG colour signalling is retained and verified. If `dovi_tool` is installed, source/output RPU metadata is also independently compared. |
-| Dolby Vision Profile 7 MEL | Requires `CONTAINER=mkv`. Extract the RPU with `dovi_tool`, convert it to Profile 8.1, encode the HDR10 base layer, inject the converted RPU, rebuild the MKV, and verify the injected RPU. |
-| Dolby Vision Profile 7 FEL | **Never automatically re-encoded.** The file is copied unchanged because the FEL residual contribution cannot be faithfully retained by this generic x265 workflow. |
-| Unknown/unsupported dynamic HDR | Copied unchanged. |
-
-Profile 7 MEL conversion is additionally limited to sources that the script can identify as constant-frame-rate with a zero video start time. If those timing conditions are not met, the source is copied unchanged to avoid A/V synchronization risk.
-
-For Profile 7 MEL the resulting Dolby Vision stream is a **single-layer Profile 8.1 derivative**. The Profile 7 enhancement layer is not preserved. This is intentional for MEL. Profile 7 FEL remains untouched because discarding its enhancement-layer residual can alter the Dolby Vision presentation.
-
-If `hdr10plus_tool`, `dovi_tool`, `cmp`, or native FFmpeg Dolby Vision support is missing when required, the script does not strip the metadata. It logs a warning and copies the original source unchanged.
-
-Dynamic-HDR verification follows the same non-destructive policy as the rest of the script: a completed encode with a verification mismatch is retained and a detailed warning is added to `h265/conversion_warnings.log`.
-
-## A/53 Captions and Unregistered SEI
-
-When supported by the installed FFmpeg/libx265 wrapper, converted H.264 streams receive:
-
-```text
--a53cc 1
--udu_sei 1
-```
-
-This explicitly requests preservation of available A/53 closed-caption data and unregistered user-data SEI.
-
-If the installed FFmpeg does not expose one of these options, the script records a warning and continues.
-
-## Audio, Subtitles, Attachments, and Metadata
-
-Each conversion begins with the equivalent of:
+The normal FFmpeg mapping uses:
 
 ```text
 -map 0
@@ -394,198 +304,108 @@ Each conversion begins with the equivalent of:
 -copy_unknown
 ```
 
-Every stream is therefore copied by default. Only H.264 video streams are overridden with `libx265` encoding settings.
+Only selected video streams are overridden with `libx265`.
 
-The structural verification checks whether expected copied streams, metadata, dispositions, attachments, and chapters survived the muxing process.
+This is intended to preserve:
 
-Container limitations still apply. If `CONTAINER=source` selects a container that cannot represent HEVC or one of the copied streams, FFmpeg may fail. The failure and FFmpeg diagnostics are recorded in the log.
+- audio tracks;
+- subtitle tracks;
+- attachments such as fonts;
+- data/unknown streams where FFmpeg supports copying them;
+- chapters;
+- global metadata;
+- stream metadata;
+- stream dispositions such as default/forced/hearing-impaired flags.
 
-## Files Copied Unchanged
+The script also requests A/53 caption preservation and unregistered SEI preservation when those libx265-wrapper options are exposed by the installed FFmpeg build.
 
-The script normally copies these instead of transcoding them:
+No transcoding/remuxing system can promise preservation of every proprietary container-private field that FFmpeg does not expose. For unsupported/ambiguous cases, this script deliberately favors copying the source unchanged.
 
-- files without H.264 video;
-- audio-only files;
-- non-media files;
-- already-HEVC files;
-- dynamic-HDR files when `DYNAMIC_HDR=copy`, plus unsupported/unsafe dynamic-HDR cases even when `DYNAMIC_HDR=transcode`;
-- H.264 4:2:2 or 4:4:4 video;
-- RGB H.264 video;
-- H.264 sources above 10-bit;
-- unusual HDR sources that the safety checks reject.
+## Critical verification policy
 
-## Linux Filesystem Metadata
-
-For ordinary copied files, the script first attempts:
+Default:
 
 ```text
-cp --preserve=all
+FATAL_VERIFY=1
 ```
 
-This requests preservation of mode, ownership, timestamps, links, security context, and extended attributes where the operating system, filesystem, and permissions allow it.
+Critical mismatches do not merely produce a warning. They mark the temporary derivative as unsafe, after which it is deleted and the original is copied instead.
 
-If full preservation fails, it falls back to `cp -p` and records a warning.
+Examples treated as critical include:
 
-For transcoded files, the script uses:
+- output cannot be inspected by FFprobe;
+- expected video stream is missing;
+- unexpected video codec change;
+- resolution/SAR/DAR mismatch;
+- HDR bit depth or colour signalling changes;
+- static HDR metadata detected on the source is missing;
+- HDR10+ verification mismatch/failure;
+- Dolby Vision RPU/profile verification mismatch/failure;
+- stream counts/types/codecs change unexpectedly;
+- audio sample rate/channels/layout change;
+- copied-video properties change;
+- stream dispositions change;
+- chapter count/timing changes;
+- lossless decoded-pixel verification fails.
+
+Cosmetic metadata differences such as selected title/comment/container-tag changes are still logged as warnings rather than automatically rejecting the derivative.
+
+Disable fail-safe rejection and retain derivatives while logging critical mismatches as warnings:
+
+```bash
+FATAL_VERIFY=0 ./h264_to_h265_archive.sh /path/to/media
+```
+
+For an archival workflow, leaving `FATAL_VERIFY=1` is recommended.
+
+## Structure verification
+
+Default:
 
 ```text
-cp --attributes-only --preserve=all
+VERIFY_STRUCTURE=1
 ```
 
-against the completed temporary encode before its final atomic rename. This applies source filesystem attributes without replacing the transcoded data.
+The script compares source and output stream structure, including:
 
-Directory modes and timestamps are restored on a best-effort basis after processing. Directory ownership is also restored when the script runs as root.
+- total stream count;
+- per-type stream counts;
+- codecs;
+- audio sample rate/channels/channel layout;
+- copied-video dimensions/pixel format;
+- selected stream metadata;
+- dispositions;
+- chapter count/timing/metadata;
+- selected global container metadata.
 
-## SHA-256 Manifests
-
-Checksum manifests are disabled by default because hashing an entire large archive can add substantial I/O time.
-
-Enable them with:
+Disable it with:
 
 ```bash
-CHECKSUMS=1 ./h264_to_h265_archive.sh /path/to/media
+VERIFY_STRUCTURE=0 ./h264_to_h265_archive.sh /path/to/media
 ```
 
-The script then creates:
+## Optional complete decode-integrity verification
+
+A structural probe does not prove every media frame can be decoded. For a full post-encode video/audio decode check:
+
+```bash
+VERIFY_DECODE=1 ./h264_to_h265_archive.sh /path/to/media
+```
+
+This runs an additional FFmpeg decode-to-null pass with error-to-failure behavior. It is intentionally disabled by default because it can add substantial runtime.
+
+When `FATAL_VERIFY=1`, a decode failure rejects the derivative and keeps the original.
+
+## Atomic output and interruption safety
+
+Transcodes and copies are written to same-directory temporary names similar to:
 
 ```text
-h265/source_sha256.txt
-h265/output_sha256.txt
+.h265-partial.<pid>.<random>
 ```
 
-`source_sha256.txt` covers the original source tree while excluding the generated `h265/` directory.
+The final filename appears only after successful processing and verification.
 
-`output_sha256.txt` covers the generated output files while excluding the warning log, checksum manifests, and temporary partial files.
+`SIGINT`, `SIGTERM`, and `SIGHUP` trigger cleanup of the active partial output and dynamic-HDR work directory.
 
-To verify the source manifest later:
-
-```bash
-cd /path/to/media
-sha256sum -c h265/source_sha256.txt
-```
-
-To verify the output manifest later:
-
-```bash
-cd /path/to/media/h265
-sha256sum -c output_sha256.txt
-```
-
-These file-level hashes are different from the decoded-pixel hashes used by `LOSSLESS=1`.
-
-## Progress Bars
-
-During a transcode, FFmpeg reports progress every 0.5 seconds and the script shows percentage, encoded frame count, FPS, and speed:
-
-```text
-Encoding  [####################                ] 56% | frame 42173    | 18.42 fps | speed 0.768x
-```
-
-The main and auxiliary FFmpeg operations use `-nostdin`, which prevents unattended jobs from pausing while waiting for terminal input. If the progress line continues changing, the encoder is active even when a `slow` x265 encode is running well below real time.
-
-After each source file:
-
-```text
-Overall   [############################        ] 78%
-```
-
-Copied, skipped, converted, and failed files all advance overall progress.
-
-## Warning and Error Log
-
-All runs append to one persistent log:
-
-```text
-<source>/h265/conversion_warnings.log
-```
-
-It contains:
-
-- failed conversions;
-- copy failures;
-- the final 80 lines of FFmpeg output for failed encodes;
-- HDR preservation warnings;
-- resolution/SAR/DAR mismatches;
-- stream-count/type/codec mismatches;
-- metadata or disposition mismatches;
-- chapter mismatches;
-- files copied unchanged for archival safety;
-- filesystem metadata preservation warnings;
-- lossless decoded-picture verification failures;
-- checksum manifest generation failures;
-- run summaries.
-
-Successful files are not logged individually.
-
-## Overwriting Existing Output
-
-By default, existing destination files are skipped.
-
-To overwrite them:
-
-```bash
-OVERWRITE=1 ./h264_to_h265_archive.sh /path/to/media
-```
-
-Because output is committed atomically, an active conversion writes to a temporary filename first and replaces the final file only after encoding and verification complete.
-
-## Recommended Archival-Derivative Commands
-
-High-quality general-purpose derivative:
-
-```bash
-CRF=14 PRESET=slow ./h264_to_h265_archive.sh /path/to/media
-```
-
-Grain-heavy film:
-
-```bash
-CRF=14 PRESET=slow TUNE=grain ./h264_to_h265_archive.sh /path/to/media
-```
-
-Safer container choice for mixed libraries:
-
-```bash
-CRF=14 PRESET=slow CONTAINER=mkv ./h264_to_h265_archive.sh /path/to/media
-```
-
-With source/output checksum manifests:
-
-```bash
-CRF=14 PRESET=slow CONTAINER=mkv CHECKSUMS=1 ./h264_to_h265_archive.sh /path/to/media
-```
-
-Opt in to HDR10+/supported Dolby Vision re-encoding:
-
-```bash
-CRF=14 PRESET=slow CONTAINER=mkv DYNAMIC_HDR=transcode CHECKSUMS=1 \
-./h264_to_h265_archive.sh /path/to/media
-```
-
-The safe default remains `DYNAMIC_HDR=copy`. Use `DYNAMIC_HDR=transcode` only when you have the required metadata tools installed and specifically want dynamic-HDR derivatives.
-
-Mathematically lossless decoded-picture conversion:
-
-```bash
-LOSSLESS=1 PRESET=slow CHECKSUMS=1 ./h264_to_h265_archive.sh /path/to/media
-```
-
-## Archival Recommendation
-
-For irreplaceable material, treat the original H.264 files as the archival masters and the generated HEVC files as derivatives.
-
-A strong workflow is:
-
-```text
-original source
-    -> source SHA-256 manifest
-    -> H.265 encode to temporary file
-    -> video/HDR verification
-    -> complete stream/chapter/metadata verification
-    -> optional decoded-pixel verification
-    -> filesystem attribute preservation
-    -> atomic rename to final output
-    -> output SHA-256 manifest
-```
-
-Even when `LOSSLESS=1`, the output does not preserve the original H.264 compressed bitstream, so retaining the source remains the safest long-term archival policy.
+This design also means stale completed files are not deleted before a replacement succeeds.
