@@ -36,7 +36,7 @@ done
 
 configure_archive "$@"
 
-trap cleanup_temp EXIT
+trap cleanup_all EXIT
 trap handle_signal INT TERM HUP
 
 initialize_runtime
