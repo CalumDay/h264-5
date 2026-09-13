@@ -31,7 +31,7 @@ jobs:
       - name: Create release archive
         run: |
           tar -czf release.tar.gz \
-            h264_to_h265_transcoder.sh \
+            h264_to_265_transcoder.sh \
             lib/
 
       - name: Upload archive to release
