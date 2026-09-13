@@ -107,30 +107,66 @@ process_file() {
     # dynamic-HDR mode, HEVC is screened too.  Reuse a cached exhaustive result
     # when the source fingerprint proves the file has not changed.
     if [ "$h264_found" -eq 1 ] || { [ "$DYNAMIC_HDR" = "transcode" ] && [ "$hevc_found" -eq 1 ]; }; then
-        if [ "$hdr_cache" -eq 1 ]; then
-            echo "HDR scan: $relative (cached)"
-        else
-            phase_started=$SECONDS
-            hdr_flags="$(get_dynamic_hdr_flags "$input" "$relative")"
-            hdr_scan_status=$?
-            scan_seconds=$((SECONDS - phase_started))
 
-            if [ "$hdr_scan_status" -ne 0 ] || ! [[ "$hdr_flags" =~ ^[01][[:space:]][01][[:space:]][01]$ ]]; then
-                log_entry WARNING "$relative" \
-                    "Exhaustive dynamic-HDR scan failed or returned an invalid result." \
-                    "The source was copied unchanged rather than risking dynamic-metadata loss."
-                copy_file "$input" "$copy_output" "$relative"
-                return
-            fi
+    # If a valid scan result already exists for this exact source,
+    # reuse it even when SKIP_HDR_SCAN=1. Reusing cached results
+    # does not require scanning the media again.
+    if [ "$hdr_cache" -eq 1 ]; then
 
-            read -r has_dovi has_hdr10p has_other_dynamic <<< "$hdr_flags"
-            CURRENT_HDR_SCAN_COMPLETE=1
-            CURRENT_HAS_DOVI="$has_dovi"
-            CURRENT_HAS_HDR10P="$has_hdr10p"
-            CURRENT_HAS_OTHER_DYNAMIC="$has_other_dynamic"
-            write_scan_state "$input" "$relative" "$scan_seconds"
+        echo "HDR scan: $relative (cached)"
+
+    # Explicitly skip the expensive exhaustive scan.
+    elif [ "$SKIP_HDR_SCAN" = "1" ]; then
+
+        echo "HDR scan: $relative (skipped)"
+
+        log_entry WARNING "$relative" \
+            "Exhaustive dynamic-HDR scan skipped because SKIP_HDR_SCAN=1." \
+            "Dolby Vision/HDR10+ metadata may therefore go undetected."
+
+        # No dynamic HDR has been detected because no scan was performed.
+        has_dovi=0
+        has_hdr10p=0
+        has_other_dynamic=0
+
+        # Do NOT mark this as a completed HDR scan.
+        # This ensures that if HDR scanning is enabled later,
+        # the file can still receive a real exhaustive scan.
+        CURRENT_HDR_SCAN_COMPLETE=0
+        CURRENT_HAS_DOVI=0
+        CURRENT_HAS_HDR10P=0
+        CURRENT_HAS_OTHER_DYNAMIC=0
+
+    else
+
+        phase_started=$SECONDS
+
+        hdr_flags="$(get_dynamic_hdr_flags "$input" "$relative")"
+        hdr_scan_status=$?
+
+        scan_seconds=$((SECONDS - phase_started))
+
+        if [ "$hdr_scan_status" -ne 0 ] ||
+           ! [[ "$hdr_flags" =~ ^[01][[:space:]][01][[:space:]][01]$ ]]; then
+
+            log_entry WARNING "$relative" \
+                "Exhaustive dynamic-HDR scan failed or returned an invalid result." \
+                "The source was copied unchanged rather than risking dynamic-metadata loss."
+
+            copy_file "$input" "$copy_output" "$relative"
+            return
         fi
+
+        read -r has_dovi has_hdr10p has_other_dynamic <<< "$hdr_flags"
+
+        CURRENT_HDR_SCAN_COMPLETE=1
+        CURRENT_HAS_DOVI="$has_dovi"
+        CURRENT_HAS_HDR10P="$has_hdr10p"
+        CURRENT_HAS_OTHER_DYNAMIC="$has_other_dynamic"
+
+        write_scan_state "$input" "$relative" "$scan_seconds"
     fi
+fi
 
     if [ "$has_dovi" -eq 1 ] || [ "$has_hdr10p" -eq 1 ] || [ "$has_other_dynamic" -eq 1 ]; then
         if [ "$DYNAMIC_HDR" = "copy" ]; then
