@@ -186,6 +186,14 @@ Your FFmpeg build must include `libx265`:
 ffmpeg -hide_banner -encoders | grep libx265
 ```
 
+On Fedora, as an example, this is not included in ffmpeg-free. Instead you will need to include ffmpeg by enabling RPM-Fusion repos, and swithcing to the full version of ffmpeg:
+
+```bash
+sudo dnf install https://mirrors.rpmfusion.org/free/fedora/rpmfusion-free-release-$(rpm -E %fedora).noarch.rpm https://mirrors.rpmfusion.org/nonfree/fedora/rpmfusion-nonfree-release-$(rpm -E %fedora).noarch.rpm
+
+sudo dnf swap ffmpeg-free ffmpeg --allowerasing
+```
+
 When `CHECKSUMS=1`, these are additionally required:
 
 ```text

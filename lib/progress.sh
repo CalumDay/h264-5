@@ -10,11 +10,54 @@ cleanup_temp() {
     [ -n "$CURRENT_WORKDIR" ] && rm -rf -- "$CURRENT_WORKDIR" 2>/dev/null || true
 }
 
+release_archive_lock() {
+
+    # Explicitly release the kernel advisory lock.
+    if [ "${LOCK_HELD:-0}" = "1" ] &&
+       [ -n "${LOCK_FD:-}" ]; then
+
+        flock -u "$LOCK_FD" 2>/dev/null || true
+        LOCK_HELD=0
+    fi
+
+    # Close the file descriptor that was holding the lock.
+    if [ -n "${LOCK_FD:-}" ]; then
+        eval "exec ${LOCK_FD}>&-" 2>/dev/null || true
+        LOCK_FD=""
+    fi
+
+    # Do NOT rm "$LOCK_FILE".
+    #
+    # The .conversion.lock file is intentionally persistent.
+    # flock protects the inode through an open file descriptor;
+    # the existence of this file does not mean the archive is locked.
+}
+
+cleanup_all() {
+
+    # Save the exit status of the command/script that triggered cleanup.
+    local rc=$?
+
+    cleanup_temp
+    release_archive_lock
+
+    return "$rc"
+}
+
 #Handle SIGINTS
 handle_signal() {
+    local signal_name="${1:-signal}"
+
+    # Prevent a second Ctrl+C/SIGTERM arriving while cleanup is starting.
+    trap - INT TERM HUP
+
     echo
-    echo "Interrupted; temporary output is being removed."
-    log_entry WARNING SCRIPT "Conversion run was interrupted; active temporary output was removed."
+    echo "Interrupted by $signal_name; temporary output is being removed and the archive lock is being released."
+
+    log_entry WARNING SCRIPT \
+        "Conversion run was interrupted by $signal_name; active temporary output was removed and the archive lock was released."
+
+    # Calling exit triggers the EXIT trap above, which runs cleanup_all.
     exit 130
 }
 
