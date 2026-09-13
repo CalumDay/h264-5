@@ -18,6 +18,7 @@ configure_archive() {
     VERIFY_DECODE="${VERIFY_DECODE:-0}"   #Can be 0 or 1; full decode verification is expensive
     FATAL_VERIFY="${FATAL_VERIFY:-1}"     #1 = reject derivative on critical verification failure
     DYNAMIC_HDR="${DYNAMIC_HDR:-transcode}"    #can be copy or transcode. Copy will not transcode HDR content and will just copy the original to the output directory
+    SKIP_HDR_SCAN="${SKIP_HDR_SCAN:-0}"    #Set to 1 if skipping scan. 
     HDR_SCAN_PACKETS="${HDR_SCAN_PACKETS:-300}" #Number of packets for quick static HDR cerification
     HDR_HEARTBEAT_SECONDS="${HDR_HEARTBEAT_SECONDS:-5}" #Number of seconds to wait between updates when scanning for HDR content
     PROGRESS_WIDTH="${PROGRESS_WIDTH:-36}"  #Sets progress bar width
@@ -73,7 +74,7 @@ configure_archive() {
 
     #Checks booleans are correctly set
     local bool_name bool_value numeric_name numeric_value
-    for bool_name in KEEP_ONLY_IF_SMALLER VERIFY_STRUCTURE VERIFY_DECODE FATAL_VERIFY FREE_SPACE_CHECK REPROCESS_ON_TOOL_CHANGE; do
+    for bool_name in KEEP_ONLY_IF_SMALLER VERIFY_STRUCTURE VERIFY_DECODE FATAL_VERIFY FREE_SPACE_CHECK REPROCESS_ON_TOOL_CHANGE SKIP_HDR_SCAN; do
         bool_value="${!bool_name}"
         case "$bool_value" in
             0|1) ;;
