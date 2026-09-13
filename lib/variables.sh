@@ -134,14 +134,30 @@ configure_archive() {
     OUTPUT_MANIFEST="$DEST_ROOT/output_sha256.txt"
     STATE_ROOT="$DEST_ROOT/.h265-state"
     LOCK_FILE="$DEST_ROOT/.conversion.lock"
+    LOCK_FD=""
+    LOCK_HELD=0
     mkdir -p "$STATE_ROOT"
 
-    #Keep the lock file descriptor open for the lifetime of the controller.
-    exec 9>"$LOCK_FILE"
-    if ! flock -n 9; then
+    # Open the persistent coordination file.
+    exec {LOCK_FD}>"$LOCK_FILE" || {
+        echo "ERROR: could not open archive lock file: $LOCK_FILE"
+        exit 1
+    }
+    
+    # Try to acquire the exclusive advisory lock.
+    if ! flock -n "$LOCK_FD"; then
         echo "ERROR: another conversion process is already using: $DEST_ROOT"
+
+        # We did not acquire the lock, but the descriptor is open,
+        # so close it before exiting.
+        exec {LOCK_FD}>&- 2>/dev/null || true
+        LOCK_FD=""
+
         exit 1
     fi
+
+    # Remember that this process successfully acquired the lock.
+LOCK_HELD=1
 
     #set counters etc
     warnings=0
