@@ -14,22 +14,25 @@ jobs:
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
+        with:
+          ref: main
+
+      - name: Show repository contents
+        run: |
+          echo "Current directory:"
+          pwd
+
+          echo "Repository contents:"
+          ls -la
+
+          echo "lib contents:"
+          ls -la lib/
 
       - name: Create release archive
         run: |
           tar -czf release.tar.gz \
             h264_to_h265_transcoder.sh \
             lib/
-
-      - name: Create GitHub release
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: |
-          VERSION="${GITHUB_REF_NAME#v}"
-
-          gh release create "${GITHUB_REF_NAME}" \
-            --title "Transcoder-${VERSION}" \
-            --generate-notes
 
       - name: Upload archive to release
         env:
