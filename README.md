@@ -248,18 +248,18 @@ SKIP_HDR_SCAN=1`
 
 ## Dynamic HDR policy
 
-The safe default is:
+The default is:
 
 ```text
-DYNAMIC_HDR=copy
+DYNAMIC_HDR=transcode
 ```
 
-When dynamic HDR is detected, the original is copied unchanged.
+When dynamic HDR is detected, metadata-aware re-encoding is performed.
 
-Enable metadata-aware re-encoding explicitly with:
+If desired, it is possible to simply copy the source files unchanged using:
 
 ```bash
-DYNAMIC_HDR=transcode CONTAINER=mkv ./h264_to_h265_archive.sh /path/to/media
+DYNAMIC_HDR=copy ./h264_to_h265_archive.sh /path/to/media
 ```
 
 ### HDR10+
