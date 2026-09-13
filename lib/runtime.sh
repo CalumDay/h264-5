@@ -45,6 +45,7 @@ initialize_runtime() {
     TOOL_FINGERPRINT="$(fingerprint_values "$FFMPEG_VERSION" "$FFPROBE_VERSION" "$X265_VERSION" "$HDR10PLUS_VERSION" "$DOVI_VERSION")"
     SETTINGS_FINGERPRINT="$(fingerprint_values \
         "$CRF" "$PRESET" "$TUNE" "$LOSSLESS" "$CONTAINER" "$DYNAMIC_HDR" \
+        "$SKIP_HDR_SCAN" \
         "$HDR_SCAN_PACKETS" "$KEEP_ONLY_IF_SMALLER" "$MIN_SIZE_SAVING_PERCENT" \
         "$MIN_SIZE_SAVING_MIB" "$ABS_SAVING_MIN_SOURCE_MIB" "$VERIFY_STRUCTURE" \
         "$VERIFY_DECODE" "$FATAL_VERIFY" "$HAS_UDU_SEI" "$HAS_A53CC" "$HAS_DOLBYVISION")"
@@ -71,6 +72,11 @@ initialize_runtime() {
         echo "Container : $CONTAINER"
         echo "Checksums : $CHECKSUMS"
         echo "Dyn HDR   : $DYNAMIC_HDR"
+        if [ "$SKIP_HDR_SCAN" = "1" ]; then
+          echo "HDR scan  : skipped"
+        else
+          echo "HDR scan  : enabled"
+        fi
         echo "Size gate : $KEEP_ONLY_IF_SMALLER"
         echo "Min save  : ${MIN_SIZE_SAVING_PERCENT}% + ${MIN_SIZE_SAVING_MIB} MiB (for sources >= ${ABS_SAVING_MIN_SOURCE_MIB} MiB)"
         echo "Decode chk: $VERIFY_DECODE"
@@ -117,6 +123,11 @@ run_archive() {
     echo "Container : $CONTAINER"
     echo "Checksums : $CHECKSUMS"
     echo "Dyn HDR   : $DYNAMIC_HDR"
+    if [ "$SKIP_HDR_SCAN" = "1" ]; then
+      echo "HDR scan  : skipped"
+    else
+      echo "HDR scan  : enabled"
+    fi
     echo "Size gate : $KEEP_ONLY_IF_SMALLER"
     echo "Min save  : ${MIN_SIZE_SAVING_PERCENT}% + ${MIN_SIZE_SAVING_MIB} MiB (large files)"
     echo "Decode chk: $VERIFY_DECODE"
