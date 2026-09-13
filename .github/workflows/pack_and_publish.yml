@@ -30,7 +30,10 @@ jobs:
 
       - name: Create release archive
         run: |
-          tar -czf release.tar.gz \
+          VERSION="${{ github.event.release.tag_name }}"
+          VERSION="${VERSION#v}"
+
+          tar -czf "Transcoder_${VERSION}.tar.gz" \
             h264_to_265_transcoder.sh \
             lib/
 
@@ -38,4 +41,10 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          gh release upload "${GITHUB_REF_NAME}" release.tar.gz
+          VERSION="${{ github.event.release.tag_name }}"
+          VERSION="${VERSION#v}"
+
+          gh release upload \
+            "${{ github.event.release.tag_name }}" \
+            "banana-${VERSION}.tar.gz" \
+            --clobber
