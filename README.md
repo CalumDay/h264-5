@@ -8,7 +8,7 @@ The script mirrors the source tree into a configurable destination, preserves no
 It is important to note that when operating as intended, this is not lossless. Some loss in image quality is to be expected, however the default setting target a minimum VMAF score of 95.
 
 ## Installation
-Download h264_to_h265_transcoder.sh and the lib folder. place them together in a convenient directory.
+Download the [latest release from this page](https://github.com/CalumDay/h264-5/releases/latest/) and unzip in a convenient directory.
 
 Make the script executable
 ```bash
