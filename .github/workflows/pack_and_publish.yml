@@ -18,8 +18,8 @@ jobs:
       - name: Create release archive
         run: |
           tar -czf release.tar.gz \
-            my-file.txt \
-            my-subfolder/
+            h264_to_h265_transcoder.sh \
+            lib/
 
       - name: Create GitHub release
         env:
