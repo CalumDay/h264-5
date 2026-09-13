@@ -46,9 +46,18 @@ cleanup_all() {
 
 #Handle SIGINTS
 handle_signal() {
+    local signal_name="${1:-signal}"
+
+    # Prevent a second Ctrl+C/SIGTERM arriving while cleanup is starting.
+    trap - INT TERM HUP
+
     echo
-    echo "Interrupted; temporary output is being removed."
-    log_entry WARNING SCRIPT "Conversion run was interrupted; active temporary output was removed."
+    echo "Interrupted by $signal_name; temporary output is being removed and the archive lock is being released."
+
+    log_entry WARNING SCRIPT \
+        "Conversion run was interrupted by $signal_name; active temporary output was removed and the archive lock was released."
+
+    # Calling exit triggers the EXIT trap above, which runs cleanup_all.
     exit 130
 }
 
