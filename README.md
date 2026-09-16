@@ -65,6 +65,7 @@ The script mirrors source subdirectories, including empty directories, into the 
 | VERIFY_STRUCTURE=1 | Sets if output structure should be verified. |
 | VERIFY_DECODE=0    | Sets if full decode verification should be performed |
 | FATAL_VERIFY=1 | Sets if fatal errors should result in transcode rejection    |
+| SKIP_HDR_SCAN=0 | If set to 1, skips the expensive variable HDR scan. Useful when content is known not to contain HDR10+/Dolby Vision content        |
 | DYNAMIC_HDR=transcode  | Sets if HDR content should be transcoded or copied.  |
 | HDR_SCAN_PACKETS=300   | Sets number of packages for fast scan of static HDR  |
 | HDR_HEARTBEAT_SECONDS=5    | Sets how often to update the progress hearbeat when scanning HDR content in seconds  |
@@ -239,20 +240,26 @@ Set the heartbeat interval with:
 HDR_HEARTBEAT_SECONDS=10 ./h264_to_h265_archive.sh /path/to/media
 ```
 
-## Dynamic HDR policy
-
-The safe default is:
-
-```text
-DYNAMIC_HDR=copy
-```
-
-When dynamic HDR is detected, the original is copied unchanged.
-
-Enable metadata-aware re-encoding explicitly with:
+If content is known not to contain dynamic HDR, then this expensive process can be skipped using:
 
 ```bash
-DYNAMIC_HDR=transcode CONTAINER=mkv ./h264_to_h265_archive.sh /path/to/media
+SKIP_HDR_SCAN=1`
+```
+
+## Dynamic HDR policy
+
+The default is:
+
+```text
+DYNAMIC_HDR=transcode
+```
+
+When dynamic HDR is detected, metadata-aware re-encoding is performed.
+
+If desired, it is possible to simply copy the source files unchanged using:
+
+```bash
+DYNAMIC_HDR=copy ./h264_to_h265_archive.sh /path/to/media
 ```
 
 ### HDR10+
